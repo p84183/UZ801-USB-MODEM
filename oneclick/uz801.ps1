@@ -6,7 +6,8 @@
   Actions:
     setup         Check adb / fastboot / python and install the bkerler "edl" tool into .\tools\edl
     backup        Put the dongle in EDL and dump the whole flash plus every partition (read-only)
-    flash         Flash OpenWRT (HandsomeMod-UZ801 release). Refuses to run without a verified backup.
+    flash         Flash OpenWRT (HandsomeMod-UZ801 release) over fastboot, using THIS dongle's modem
+                  partitions instead of the ones bundled in the release. Needs a verified backup.
     restore-modem Write ONLY modemst1, modemst2, fsg, fsc back from a backup (IMEI / signal recovery)
     restore-full  Write the whole full_backup.bin back (return to the exact stock state)
 
@@ -121,7 +122,7 @@ function Test-Backup($dir, [switch]$NeedFull) {
     $hashFile = Join-Path $dir 'SHA256SUMS.txt'
     if (-not (Test-Path $hashFile)) { Die "$dir has no SHA256SUMS.txt; not a complete backup." }
     foreach ($p in $ModemParts) {
-        if (-not (Test-Path (Join-Path $dir "partitions\$p.bin"))) { Die "Backup is missing $p.bin" }
+        if (-not ((Test-Path (Join-Path $dir "partitions\$p.bin")) -or (Test-Path (Join-Path $dir "partitions\$p.img")))) { Die "Backup is missing $p" }
     }
     if ($NeedFull -and -not (Test-Path (Join-Path $dir 'full_backup.bin'))) { Die 'Backup is missing full_backup.bin' }
     Info "Verifying hashes in $dir ..."
@@ -207,23 +208,74 @@ function Get-Image {
     return $flash
 }
 
+function Wait-Fastboot {
+    for ($i = 0; $i -lt 60; $i++) {
+        if ((& fastboot devices) -match 'fastboot') { return }
+        Start-Sleep -Seconds 1
+    }
+    Die 'Device did not appear in fastboot within 60 s.'
+}
+
+function Invoke-Fastboot {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$FbArgs)
+    Info "fastboot $($FbArgs -join ' ')"
+    & fastboot @FbArgs
+    if ($LASTEXITCODE -ne 0) { Die "fastboot $($FbArgs -join ' ') failed. Backups: $dir" }
+}
+
+function Find-BackupPart($dir, $name) {
+    foreach ($ext in 'bin', 'img') {
+        $f = Join-Path $dir "partitions\$name.$ext"
+        if (Test-Path $f) { return $f }
+    }
+    Die "Backup has no partitions\$name.bin/.img"
+}
+
+# Re-implements the release flash.bat step by step (fastboot only, no EDL needed), with one change:
+# the release ships modemst1/modemst2/fsg from ANOTHER unit and only replaces them if
+# "fastboot oem dump" succeeds. We always overwrite them with THIS dongle's backup first.
 function Do-Flash {
     $dir = Get-BackupDir
     Test-Backup $dir -NeedFull
+    if (-not (Test-Cmd 'fastboot')) { Die 'fastboot not found.' }
     $flash = Get-Image
-    Ok "Release flash script: $($flash.FullName)"
-    Write-Host '----- release flash.bat -----'
-    Get-Content $flash.FullName | Write-Host
-    Write-Host '-----------------------------'
-    Confirm-Danger "This ERASES stock Android and flashes OpenWRT. Backup in use: $dir"
-    Enter-Edl
-    Push-Location $flash.DirectoryName
+    $pkg = $flash.DirectoryName
+    foreach ($f in 'aboot.bin','boot.img','rootfs.img','sbl1.mbn','rpm.mbn','tz.mbn','hyp.mbn','sbc_1.0_8016.bin','gpt_both0.bin') {
+        if (-not (Test-Path (Join-Path $pkg $f))) { Die "Release package is missing $f" }
+    }
+    Confirm-Danger "This replaces the partition table, ERASES stock Android and flashes OpenWRT. Going back to stock later needs EDL (Zadig + restore-full). Backup in use: $dir"
+
+    Info 'Copying THIS dongle''s modemst1/modemst2/fsg/fsc over the release''s bundled copies...'
+    foreach ($p in $ModemParts) { Copy-Item (Find-BackupPart $dir $p) (Join-Path $pkg "$p.bin") -Force }
+
+    Push-Location $pkg
     try {
-        & cmd /c $flash.Name
-        if ($LASTEXITCODE -ne 0) { Die "Release flash.bat failed (exit $LASTEXITCODE). Restore with: uz801.ps1 restore-full" }
+        Info 'Stage 1: reboot to bootloader, install the OpenWRT aboot'
+        & adb reboot bootloader | Out-Null
+        Wait-Fastboot
+        Invoke-Fastboot erase boot
+        Invoke-Fastboot flash aboot aboot.bin
+        Invoke-Fastboot reboot
+        Start-Sleep -Seconds 5
+        Wait-Fastboot
+
+        Info 'Stage 2: new partition table, firmware, this dongle''s modem data, OpenWRT'
+        Invoke-Fastboot flash partition gpt_both0.bin
+        Invoke-Fastboot flash hyp hyp.mbn
+        Invoke-Fastboot flash rpm rpm.mbn
+        Invoke-Fastboot flash sbl1 sbl1.mbn
+        Invoke-Fastboot flash tz tz.mbn
+        foreach ($p in 'fsc', 'fsg', 'modemst1', 'modemst2') { Invoke-Fastboot flash $p "$p.bin" }
+        Invoke-Fastboot flash aboot aboot.bin
+        Invoke-Fastboot flash cdt sbc_1.0_8016.bin
+        Invoke-Fastboot erase boot
+        Invoke-Fastboot erase rootfs
+        Invoke-Fastboot flash boot boot.img
+        Invoke-Fastboot flash rootfs rootfs.img
+        Invoke-Fastboot reboot
     } finally { Pop-Location }
     Ok 'Flash finished. Expect red/blue LED blinking, then http://192.168.1.1'
-    Warn 'No IMEI / no signal afterwards? Run: uz801.ps1 restore-modem'
+    Warn 'No signal? See wiki Troubleshooting (Changing Modem Region).'
 }
 
 function Do-RestoreModem {
@@ -231,7 +283,7 @@ function Do-RestoreModem {
     Test-Backup $dir
     Confirm-Danger "This overwrites modemst1, modemst2, fsg, fsc with the copies in $dir. Only use a backup from THIS dongle."
     Enter-Edl
-    foreach ($p in $ModemParts) { Invoke-Edl w $p (Join-Path $dir "partitions\$p.bin") }
+    foreach ($p in $ModemParts) { Invoke-Edl w $p (Find-BackupPart $dir $p) }
     Invoke-Edl reset
     Ok 'Modem partitions restored.'
 }
