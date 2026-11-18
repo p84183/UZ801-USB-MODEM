@@ -1,0 +1,4 @@
+# Device backups contain this dongle's IMEI / RF calibration. NEVER commit them.
+backups/
+tools/
+work/
