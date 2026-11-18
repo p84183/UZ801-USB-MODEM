@@ -29,9 +29,11 @@ param(
 
     # OpenWRT release archive (.tar.xz / .zip). Either a local path or a URL to download.
     [string]$ImagePath,
-    [string]$ImageUrl = 'https://github.com/AlienWolfX/HandsomeMod-UZ801/releases/latest/download/OpenWRT-UZ801_2026.tar.xz',
-    # Optional SHA256 of the archive; when given, a mismatch aborts the flash.
-    [string]$ImageSha256,
+    # Default: mirror of HandsomeMod-UZ801 v1.0-alpha on peng's pCloud
+    # (original: https://github.com/AlienWolfX/HandsomeMod-UZ801/releases/download/v1.0-alpha/OpenWRT-UZ801_2026.tar.xz)
+    [string]$ImageUrl = 'https://filedn.com/l80M1m5GL7NXLyhbNmnccOu/UZ801-USB-MODEM/openwrt/OpenWRT-UZ801_2026.tar.xz',
+    # SHA256 of the archive; a mismatch aborts the flash. Pass -ImageSha256 '' to skip when using another image.
+    [string]$ImageSha256 = 'd3d933f2a45024967000fbac8bd18f5cb53a53882916b4c0ba3d777c86886e32',
 
     # Skip the typed "YES" confirmation (not recommended)
     [switch]$Force

@@ -1,10 +1,10 @@
 # UZ801 一鍵備份 / 刷 OpenWRT / 還原（Windows）
 
-適用 UZ801 v3.2（MSM8916）。OpenWRT 映像來自 [AlienWolfX/HandsomeMod-UZ801 releases](https://github.com/AlienWolfX/HandsomeMod-UZ801/releases)，本 repo 不放任何韌體或備份檔。
+適用 UZ801 v3.2（MSM8916）。OpenWRT 映像來自 [AlienWolfX/HandsomeMod-UZ801 v1.0-alpha](https://github.com/AlienWolfX/HandsomeMod-UZ801/releases/tag/v1.0-alpha)，腳本預設從 [pCloud 鏡像](https://filedn.com/l80M1m5GL7NXLyhbNmnccOu/UZ801-USB-MODEM/openwrt/) 下載並檢查 SHA256（`d3d933f2…6e32`）。本 repo 不放任何韌體或備份檔。
 
 ## 需要
 - Windows 10 以上、Python 3、Git、Android platform-tools（adb / fastboot）放在 PATH
-- 第一次進 EDL（9008）時，用 [Zadig](https://zadig.akeo.ie/) 把該裝置驅動換成 WinUSB
+- EDL（9008）若用 Qualcomm QDLoader 驅動（COM 埠），edl 可能在 Sahara hello 卡住；此時用 [Zadig](https://zadig.akeo.ie/) 把 9008 裝置換成 WinUSB，卡住後需拔插網卡
 - 原廠韌體要先開 ADB：瀏覽 `http://192.168.100.1/usbdebug.html`
 
 ## 步驟（雙擊即可）
